@@ -21,6 +21,8 @@ final class Listener {
     }
 
     private let detector = PitchDetector()
+    /// Set while waiting on the permission prompt, so a second start can't slip in.
+    private var isStarting = false
     private var candidate: Int?
     private var candidateCount = 0
     private var silentCount = 0
@@ -37,12 +39,10 @@ final class Listener {
         }
     }
 
-    func toggle() {
-        if isListening { stop() } else { Task { await start() } }
-    }
-
     func start() async {
-        guard !isListening else { return }
+        guard !isListening, !isStarting else { return }
+        isStarting = true
+        defer { isStarting = false }
         guard await AVAudioApplication.requestRecordPermission() else {
             permissionDenied = true
             return

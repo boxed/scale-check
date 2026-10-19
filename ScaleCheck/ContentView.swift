@@ -28,15 +28,18 @@ struct ContentView: View {
                 currentNote
                 Spacer()
                 levelControls
-                listenButton
             }
             .padding()
         }
         .onAppear { applySettings() }
         .onChange(of: allowed) { applySettings() }
         .onChange(of: gateDB) { applySettings() }
-        .onChange(of: scenePhase) { _, phase in
-            if phase != .active { listener.stop() }
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            if phase == .active {
+                Task { await listener.start() }
+            } else {
+                listener.stop()
+            }
         }
     }
 
@@ -135,15 +138,6 @@ struct ContentView: View {
                 Text(error).font(.footnote).foregroundStyle(.red)
             }
         }
-    }
-
-    private var listenButton: some View {
-        Button(action: { listener.toggle() }) {
-            Label(listener.isListening ? "Stop" : "Listen", systemImage: listener.isListening ? "stop.fill" : "mic.fill")
-                .font(.title2.bold())
-                .frame(maxWidth: .infinity, minHeight: 56)
-        }
-        .buttonStyle(.borderedProminent)
     }
 }
 
