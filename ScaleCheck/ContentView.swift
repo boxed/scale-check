@@ -100,8 +100,8 @@ struct ContentView: View {
                 Text("–")
                     .font(.system(size: 120, weight: .bold, design: .rounded))
                     .foregroundStyle(.tertiary)
-                Text(listener.isListening ? "listening…" : " ")
-                    .foregroundStyle(.secondary)
+                // Holds the octave line's height so the note doesn't jump.
+                Text(" ")
             }
         }
     }
