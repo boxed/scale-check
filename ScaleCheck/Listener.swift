@@ -15,6 +15,12 @@ final class Listener {
     var level: Float = 0
     /// Pitch classes (0 = C) that are allowed.
     var allowed: Set<Int> = []
+    /// In detect mode notes are collected into `heard` instead of checked.
+    var isDetecting = false {
+        didSet { heard = [] }
+    }
+    /// Pitch classes heard while detecting, in the order first played.
+    var heard: [Int] = []
 
     var gate: Float = 0.005 {
         didSet { detector.gate = gate }
@@ -89,7 +95,10 @@ final class Listener {
         }
         guard candidateCount >= framesToConfirm else { return }
         currentNote = note
-        if !allowed.contains(((note % 12) + 12) % 12) {
+        let pc = ((note % 12) + 12) % 12
+        if isDetecting {
+            if !heard.contains(pc) { heard.append(pc) }
+        } else if !allowed.contains(pc) {
             flash()
         }
     }

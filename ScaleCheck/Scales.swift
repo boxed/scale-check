@@ -48,6 +48,44 @@ let scaleGroups: [ScaleGroup] = [
 
 let allScales: [Scale] = scaleGroups.flatMap(\.scales)
 
+struct Candidate: Identifiable, Hashable {
+    let root: Int
+    let scale: Scale
+    let notes: Set<Int>
+    var id: String { "\(root)-\(scale.id)" }
+
+    init(root: Int, scale: Scale) {
+        self.root = root
+        self.scale = scale
+        notes = Set(scale.intervals.map { (root + $0) % 12 })
+    }
+}
+
+private let allCandidates = (0..<12).flatMap { root in allScales.map { Candidate(root: root, scale: $0) } }
+private let pickerOrder = Dictionary(uniqueKeysWithValues: allScales.enumerated().map { ($1.id, $0) })
+
+/// Every root + scale containing all the `heard` pitch classes, best guess
+/// first: fewest notes not yet heard, then rooted on the first note heard
+/// (players usually start on the tonic), then picker order.
+func candidates(heard: [Int]) -> [Candidate] {
+    let heardSet = Set(heard)
+    func key(_ c: Candidate) -> (Int, Int, Int, Int) {
+        (c.notes.count, c.root == heard.first ? 0 : 1, pickerOrder[c.scale.id]!, c.root)
+    }
+    return allCandidates
+        .filter { heardSet.isSubset(of: $0.notes) }
+        .sorted { key($0) < key($1) }
+}
+
+/// The scale to pick once the heard notes leave a single note set. Scales that
+/// share a note set (A minor pentatonic and C major pentatonic, the seven
+/// modes of a key) can't be told apart by ear, so the root breaks the tie.
+func detectedScale(heard: [Int]) -> Candidate? {
+    guard !heard.isEmpty else { return nil }
+    let matches = candidates(heard: heard)
+    return Set(matches.map(\.notes)).count == 1 ? matches.first : nil
+}
+
 let rootNames = ["C", "D♭", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B"]
 
 private let sharpNames = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
