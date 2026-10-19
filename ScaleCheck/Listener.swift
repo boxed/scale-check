@@ -100,6 +100,11 @@ final class Listener {
             if !heard.contains(pc) { heard.append(pc) }
         } else if !allowed.contains(pc) {
             flash()
+        } else {
+            // A right note ends the flash at once, so the red never sits
+            // behind a note that's in the scale.
+            clearTask?.cancel()
+            isWrong = false
         }
     }
 
