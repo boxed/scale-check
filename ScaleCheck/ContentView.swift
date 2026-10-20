@@ -134,7 +134,7 @@ struct ContentView: View {
             ForEach(0..<12, id: \.self) { offset in
                 let pc = (start + offset) % 12
                 let filled = detecting ? listener.heard.contains(pc) : allowed.contains(pc)
-                let sounding = listener.currentNote.map { $0 % 12 == pc } ?? false
+                let sounding = listener.currentNotes.contains { $0 % 12 == pc }
                 // Blue for the picked scale's notes, gray for ones tapped on;
                 // outlined when off.
                 let color = detecting || scale.intervals.contains(offset) ? Color.accentColor : Color(.systemGray)
@@ -223,7 +223,7 @@ struct ContentView: View {
 
     private var currentNote: some View {
         VStack {
-            if let note = listener.currentNote {
+            if let note = listener.loudestNote {
                 Text(noteName(note % 12, root: root))
                     .font(.system(size: 120, weight: .bold, design: .rounded))
                 Text("octave \(note / 12 - 1)")

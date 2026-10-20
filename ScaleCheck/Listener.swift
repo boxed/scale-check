@@ -2,15 +2,18 @@ import AVFoundation
 import Observation
 import UIKit
 
-/// Turns pitch estimates into notes and decides when to flash for a wrong one.
+/// Turns detected notes into confirmed ones and decides when to flash for a
+/// wrong one.
 @MainActor
 @Observable
 final class Listener {
     var isListening = false
     var permissionDenied = false
     var errorMessage: String?
-    /// The MIDI note currently sounding, nil when quiet.
-    var currentNote: Int?
+    /// The MIDI notes currently sounding, empty when quiet.
+    var currentNotes: Set<Int> = []
+    /// The loudest of them.
+    var loudestNote: Int?
     var isWrong = false
     var level: Float = 0
     /// Pitch classes (0 = C) that are allowed.
@@ -29,19 +32,27 @@ final class Listener {
     private let detector = PitchDetector()
     /// Set while waiting on the permission prompt, so a second start can't slip in.
     private var isStarting = false
-    private var candidate: Int?
-    private var candidateCount = 0
+    /// Consecutive windows each note has been found in.
+    private var streaks: [Int: Int] = [:]
+    /// Confirmed notes, with how many windows in a row each has been missing.
+    private var confirmed: [Int: Int] = [:]
     private var silentCount = 0
     private var clearTask: Task<Void, Never>?
 
-    /// Consecutive windows (~21 ms apart) that must agree before a note counts.
-    /// Filters out the noisy pick attack and single-window octave glitches.
+    /// Consecutive windows (~21 ms apart) a note must be found in before it
+    /// counts. Filters out the noisy pick attack and single-window glitches.
     private let framesToConfirm = 3
+    /// Windows a confirmed note may go missing before it's dropped, so the
+    /// notes of a ringing chord don't flicker.
+    private let framesToDrop = 3
+    /// A wrong note must be found this many windows in a row to flash, so a
+    /// brief artifact (pick attack, distortion) doesn't.
+    private let framesToFlash = 5
 
     init() {
         detector.gate = gate
-        detector.onPitch = { [weak self] freq, rms in
-            Task { @MainActor in self?.handle(freq: freq, rms: rms) }
+        detector.onNotes = { [weak self] notes, rms in
+            Task { @MainActor in self?.handle(notes: notes, rms: rms) }
         }
     }
 
@@ -68,41 +79,48 @@ final class Listener {
         guard isListening else { return }
         detector.stop()
         isListening = false
-        currentNote = nil
+        currentNotes = []
+        loudestNote = nil
         isWrong = false
         level = 0
-        candidate = nil
+        streaks = [:]
+        confirmed = [:]
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
-    private func handle(freq: Float?, rms: Float) {
+    private func handle(notes: [Int], rms: Float) {
         guard isListening else { return }
         level = rms
-        guard let freq else {
-            candidate = nil
-            candidateCount = 0
+        let found = Set(notes)
+        streaks = Dictionary(uniqueKeysWithValues: found.map { ($0, (streaks[$0] ?? 0) + 1) })
+        for note in confirmed.keys where !found.contains(note) {
+            confirmed[note]! += 1
+            if confirmed[note]! > framesToDrop { confirmed[note] = nil }
+        }
+        for note in found where streaks[note]! >= framesToConfirm {
+            confirmed[note] = 0
+        }
+        guard !confirmed.isEmpty else {
             silentCount += 1
-            if silentCount > 10 { currentNote = nil }
+            if silentCount > 10 {
+                currentNotes = []
+                loudestNote = nil
+            }
             return
         }
         silentCount = 0
-        let note = Int((69 + 12 * log2(freq / 440)).rounded())
-        if note == candidate {
-            candidateCount += 1
-        } else {
-            candidate = note
-            candidateCount = 1
-        }
-        guard candidateCount >= framesToConfirm else { return }
-        currentNote = note
-        let pc = ((note % 12) + 12) % 12
+        currentNotes = Set(confirmed.keys)
+        // Notes come strongest first; while a confirmed one is missing for a
+        // window the loudest stays as it was.
+        if let loudest = notes.first(where: { confirmed[$0] != nil }) { loudestNote = loudest }
+        let pcs = notes.filter { confirmed[$0] != nil }.map { $0 % 12 }
         if isDetecting {
-            if !heard.contains(pc) { heard.append(pc) }
-        } else if !allowed.contains(pc) {
+            for pc in pcs where !heard.contains(pc) { heard.append(pc) }
+        } else if notes.contains(where: { streaks[$0]! >= framesToFlash && !allowed.contains($0 % 12) }) {
             flash()
-        } else {
-            // A right note ends the flash at once, so the red never sits
-            // behind a note that's in the scale.
+        } else if currentNotes.allSatisfy({ allowed.contains($0 % 12) }) {
+            // Right notes end the flash at once, so the red never sits
+            // behind notes that are in the scale.
             clearTask?.cancel()
             isWrong = false
         }
