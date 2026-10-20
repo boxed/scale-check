@@ -96,3 +96,13 @@ func noteName(_ pc: Int, root: Int) -> String {
     let names = [1, 3, 5, 8, 10].contains(root) ? flatNames : sharpNames
     return names[((pc % 12) + 12) % 12]
 }
+
+private let degreeNames = ["1", "♭2", "2", "♭3", "3", "4", "♭5", "5", "♭6", "6", "♭7", "7"]
+
+/// Scale degree of `interval` semitones above the root. The tritone is ♯4 in
+/// scales without a perfect fourth (Lydian), ♭5 otherwise.
+func degreeName(_ interval: Int, in scale: Scale?) -> String {
+    let i = ((interval % 12) + 12) % 12
+    if i == 6, let scale, !scale.intervals.contains(5) { return "♯4" }
+    return degreeNames[i]
+}
