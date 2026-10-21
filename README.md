@@ -3,7 +3,7 @@
 An iPhone app for practicing scales on guitar. Pick a root and a scale, play,
 and the screen flashes red the moment you hit a note outside it.
 
-<p align="center"><img src="docs/demo.gif" width="320" alt="Playing A minor pentatonic: a stray B♭ and an F major chord flash red, then Detect finds D major from a played scale"></p>
+<p align="center"><img src="docs/demo.gif" width="320" alt="Playing A minor pentatonic: a stray B♭ and an F major chord flash red, then Detect finds D major from a played scale, ignoring a fluffed F"></p>
 
 ## Features
 
@@ -16,9 +16,12 @@ and the screen flashes red the moment you hit a note outside it.
   them is out of the scale. The middle of the screen shows the loudest note
   and its octave.
 - **Detect.** Don't know what key a song is in? Tap Detect and play along.
-  The notes you play fill in, and the list narrows to the scales that fit
-  them. Tap one to pick it, or keep playing until only one note set is left
-  and it's picked for you. Tap a note to fix one that was misheard.
+  A bar beside each note shows how long it has sounded; once a note has
+  enough of the time (5%, at least 0.15 s) it fills in, so a stray
+  resonance or fluffed note doesn't throw the result. The list narrows to
+  the scales that fit the filled notes. Tap one to pick it, or keep playing
+  until only one note set is left and it's picked for you. Tap a note to
+  fix one that was misheard.
 - **Mic threshold.** The bar on the right shows the input level. Drag the
   handle to set how loud a sound must be to count, above your room's noise
   but below your playing.

@@ -18,12 +18,38 @@ final class Listener {
     var level: Float = 0
     /// Pitch classes (0 = C) that are allowed.
     var allowed: Set<Int> = []
-    /// In detect mode notes are collected into `heard` instead of checked.
+    /// In detect mode notes are tallied into `evidence` instead of checked.
     var isDetecting = false {
-        didSet { heard = [] }
+        didSet { resetHeard() }
     }
-    /// Pitch classes heard while detecting, in the order first played.
-    var heard: [Int] = []
+    /// Seconds each pitch class has sounded while detecting.
+    private(set) var evidence: [Int: Double] = [:]
+    /// Pitch classes in the order first played.
+    private var heardOrder: [Int] = []
+
+    /// Pitch classes played enough to count, in the order first played. A
+    /// note counts once it has 5% of the time heard (at least 0.15 s, at most
+    /// 1 s), so a stray resonance or fluffed note doesn't rule scales out.
+    var heard: [Int] {
+        let threshold = min(max(0.15, 0.05 * evidence.values.reduce(0, +)), 1)
+        return heardOrder.filter { evidence[$0, default: 0] >= threshold }
+    }
+
+    func resetHeard() {
+        evidence = [:]
+        heardOrder = []
+    }
+
+    /// Fixes a misheard note: drops one that counts, or makes one count by
+    /// giving it as much time as the most played note.
+    func toggleHeard(_ pc: Int) {
+        if heard.contains(pc) {
+            evidence[pc] = 0
+        } else {
+            evidence[pc] = max(evidence.values.max() ?? 0, 0.15)
+            if !heardOrder.contains(pc) { heardOrder.append(pc) }
+        }
+    }
 
     var gate: Float = 0.005 {
         didSet { detector.gate = gate }
@@ -48,6 +74,8 @@ final class Listener {
     /// A wrong note must be found this many windows in a row to flash, so a
     /// brief artifact (pick attack, distortion) doesn't.
     private let framesToFlash = 5
+    /// Time between windows: the detector's 1024-sample hop at 48 kHz.
+    private let windowSeconds = 1024.0 / 48_000
 
     init() {
         detector.gate = gate
@@ -115,7 +143,10 @@ final class Listener {
         if let loudest = notes.first(where: { confirmed[$0] != nil }) { loudestNote = loudest }
         let pcs = notes.filter { confirmed[$0] != nil }.map { $0 % 12 }
         if isDetecting {
-            for pc in pcs where !heard.contains(pc) { heard.append(pc) }
+            for pc in Set(pcs) {
+                evidence[pc, default: 0] += windowSeconds
+                if !heardOrder.contains(pc) { heardOrder.append(pc) }
+            }
         } else if notes.contains(where: { streaks[$0]! >= framesToFlash && !allowed.contains($0 % 12) }) {
             flash()
         } else if currentNotes.allSatisfy({ allowed.contains($0 % 12) }) {

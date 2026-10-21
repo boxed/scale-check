@@ -28,10 +28,13 @@ let demoScript: [DemoStep] = {
     steps.append(.rest(seconds: 0.4))
     steps.append(.play([53, 57, 60], seconds: 1.0))
     steps.append(.rest(seconds: 0.8))
-    // Detect: a D major scale narrows it down to D major.
+    // Detect: a D major scale narrows it down to D major, the fluffed F
+    // along the way too brief to count.
     steps.append(.detect)
     steps.append(.rest(seconds: 0.8))
-    melody([62, 64, 66, 67, 69, 71, 73], seconds: 0.5)
+    melody([62, 64, 66], seconds: 0.5)
+    melody([65], seconds: 0.12)
+    melody([67, 69, 71, 73], seconds: 0.5)
     steps.append(.rest(seconds: 2.0))
     return steps
 }()

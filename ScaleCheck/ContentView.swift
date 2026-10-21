@@ -102,15 +102,16 @@ struct ContentView: View {
     }
 
     private var detectHeader: some View {
-        HStack {
-            Button("Cancel") { listener.isDetecting = false }
-            Spacer()
+        VStack(spacing: 4) {
+            HStack {
+                Button("Cancel") { listener.isDetecting = false }
+                Spacer()
+                Button("Reset") { listener.resetHeard() }
+                    .disabled(listener.evidence.isEmpty)
+            }
+            .frame(minHeight: 44)
             Text(detectStatus).font(.headline)
-            Spacer()
-            Button("Reset") { listener.heard = [] }
-                .disabled(listener.heard.isEmpty)
         }
-        .frame(minHeight: 44)
     }
 
     private var detectStatus: String {
@@ -124,17 +125,20 @@ struct ContentView: View {
 
     /// All twelve notes ringing the one being heard, each with its scale degree.
     /// Normally they run from the root down with the scale notes outlined in
-    /// blue; while detecting they run from C, filled as they are heard (the
-    /// degrees count from the first one, the likely root), and tapping one
-    /// toggles it in case it was misheard.
+    /// blue; while detecting they run from C, filled once played enough to
+    /// count (the degrees count from the first one, the likely root), with a
+    /// bar of how long each has sounded, and tapping one toggles it in case it
+    /// was misheard.
     private var noteColumn: some View {
         let detecting = listener.isDetecting
         let start = detecting ? 0 : root
-        let degreeRoot = detecting ? listener.heard.first : root
+        let heard = listener.heard
+        let degreeRoot = detecting ? heard.first : root
+        let mostHeard = listener.evidence.values.max() ?? 0
         return VStack(spacing: 6) {
             ForEach(0..<12, id: \.self) { offset in
                 let pc = (start + offset) % 12
-                let filled = detecting && listener.heard.contains(pc)
+                let filled = detecting && heard.contains(pc)
                 let inScale = !detecting && allowed.contains(pc)
                 let sounding = listener.currentNotes.contains { $0 % 12 == pc }
                 HStack(spacing: 6) {
@@ -154,17 +158,19 @@ struct ContentView: View {
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            guard detecting else { return }
-                            if let i = listener.heard.firstIndex(of: pc) {
-                                listener.heard.remove(at: i)
-                            } else {
-                                listener.heard.append(pc)
-                            }
+                            if detecting { listener.toggleHeard(pc) }
                         }
                     Text(degreeRoot.map { degreeName(pc - $0, in: detecting ? nil : scale) } ?? "")
                         .font(.subheadline)
                         .foregroundStyle(filled || inScale ? Color.primary : Color.secondary)
                         .frame(width: 24, alignment: .leading)
+                    if detecting {
+                        let share = mostHeard > 0 ? listener.evidence[pc, default: 0] / mostHeard : 0
+                        Capsule()
+                            .fill(filled ? Color.accentColor : Color.secondary.opacity(0.5))
+                            .frame(width: 28 * share, height: 8)
+                            .frame(width: 28, alignment: .leading)
+                    }
                 }
             }
         }
@@ -177,13 +183,14 @@ struct ContentView: View {
                 if !listener.heard.isEmpty {
                     ForEach(candidates(heard: listener.heard)) { match in
                         Button { pick(match) } label: {
-                            HStack {
+                            VStack(alignment: .leading, spacing: 2) {
                                 Text("\(rootNames[match.root]) \(match.scale.name)")
-                                Spacer()
                                 Text(unheardNotes(match))
+                                    .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }
-                            .padding(.vertical, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.vertical, 8)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
