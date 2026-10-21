@@ -88,7 +88,7 @@ final class Listener {
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
-    private func handle(notes: [Int], rms: Float) {
+    func handle(notes: [Int], rms: Float) {
         guard isListening else { return }
         level = rms
         let found = Set(notes)

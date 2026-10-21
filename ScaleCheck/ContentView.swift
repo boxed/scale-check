@@ -4,8 +4,6 @@ struct ContentView: View {
     @AppStorage("root") private var root = 9
     @AppStorage("scale") private var scaleID = "minorPent"
     @AppStorage("gateDB") private var gateDB = -46.0
-    /// Intervals tapped on or off the picked scale, comma separated.
-    @AppStorage("toggled") private var toggledStorage = ""
     @State private var listener = Listener()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -13,12 +11,8 @@ struct ContentView: View {
         allScales.first { $0.id == scaleID } ?? allScales[0]
     }
 
-    private var toggled: Set<Int> {
-        Set(toggledStorage.split(separator: ",").compactMap { Int($0) })
-    }
-
     private var allowed: Set<Int> {
-        Set(Set(scale.intervals).symmetricDifference(toggled).map { (root + $0) % 12 })
+        Set(scale.intervals.map { (root + $0) % 12 })
     }
 
     var body: some View {
@@ -53,13 +47,20 @@ struct ContentView: View {
         .onAppear { applySettings() }
         .onChange(of: allowed) { applySettings() }
         .onChange(of: gateDB) { applySettings() }
-        .onChange(of: root) { toggledStorage = "" }
-        .onChange(of: scaleID) { toggledStorage = "" }
         .onChange(of: listener.heard) {
             if let match = detectedScale(heard: listener.heard) { pick(match) }
         }
         .onChange(of: scenePhase, initial: true) { _, phase in
             if phase == .active {
+                #if DEBUG
+                if CommandLine.arguments.contains("-demo") {
+                    root = 9
+                    scaleID = "minorPent"
+                    gateDB = -46
+                    Task { await listener.runDemo() }
+                    return
+                }
+                #endif
                 Task { await listener.start() }
             } else {
                 listener.stop()
@@ -122,10 +123,10 @@ struct ContentView: View {
     }
 
     /// All twelve notes ringing the one being heard, each with its scale degree.
-    /// Normally they run from the root down with the scale notes filled; while
-    /// detecting they run from C, filled as they are heard (the degrees count
-    /// from the first one, the likely root). Tapping one toggles it: in the
-    /// scale, or among the heard notes in case it was misheard.
+    /// Normally they run from the root down with the scale notes outlined in
+    /// blue; while detecting they run from C, filled as they are heard (the
+    /// degrees count from the first one, the likely root), and tapping one
+    /// toggles it in case it was misheard.
     private var noteColumn: some View {
         let detecting = listener.isDetecting
         let start = detecting ? 0 : root
@@ -133,43 +134,36 @@ struct ContentView: View {
         return VStack(spacing: 6) {
             ForEach(0..<12, id: \.self) { offset in
                 let pc = (start + offset) % 12
-                let filled = detecting ? listener.heard.contains(pc) : allowed.contains(pc)
+                let filled = detecting && listener.heard.contains(pc)
+                let inScale = !detecting && allowed.contains(pc)
                 let sounding = listener.currentNotes.contains { $0 % 12 == pc }
-                // Blue for the picked scale's notes, gray for ones tapped on;
-                // outlined when off.
-                let color = detecting || scale.intervals.contains(offset) ? Color.accentColor : Color(.systemGray)
-                let outline = !detecting && scale.intervals.contains(offset) ? Color.accentColor : Color.secondary.opacity(0.4)
                 HStack(spacing: 6) {
                     Text(noteName(pc, root: start))
                         .font(.headline)
                         .frame(width: 52)
                         .frame(maxHeight: .infinity)
-                        .foregroundStyle(filled ? Color.white : Color.secondary)
+                        .foregroundStyle(filled ? Color.white : inScale ? Color.accentColor : Color.secondary)
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(filled ? color : Color.clear)
+                                .fill(filled ? Color.accentColor : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(sounding ? Color.primary : outline,
+                                .strokeBorder(sounding ? Color.primary : inScale ? Color.accentColor : Color.secondary.opacity(0.4),
                                               lineWidth: sounding ? 3 : (filled ? 0 : 1.5))
                         )
                         .contentShape(Rectangle())
                         .onTapGesture {
-                            if detecting {
-                                if let i = listener.heard.firstIndex(of: pc) {
-                                    listener.heard.remove(at: i)
-                                } else {
-                                    listener.heard.append(pc)
-                                }
+                            guard detecting else { return }
+                            if let i = listener.heard.firstIndex(of: pc) {
+                                listener.heard.remove(at: i)
                             } else {
-                                toggledStorage = toggled.symmetricDifference([offset])
-                                    .sorted().map(String.init).joined(separator: ",")
+                                listener.heard.append(pc)
                             }
                         }
                     Text(degreeRoot.map { degreeName(pc - $0, in: detecting ? nil : scale) } ?? "")
                         .font(.subheadline)
-                        .foregroundStyle(filled ? Color.primary : Color.secondary)
+                        .foregroundStyle(filled || inScale ? Color.primary : Color.secondary)
                         .frame(width: 24, alignment: .leading)
                 }
             }
