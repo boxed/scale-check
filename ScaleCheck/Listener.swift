@@ -14,6 +14,9 @@ final class Listener {
     var currentNotes: Set<Int> = []
     /// The loudest of them.
     var loudestNote: Int?
+    /// Cents off the exact pitch for each sounding pitch class (0 = C), from
+    /// its loudest note, smoothed over a few windows.
+    var tuning: [Int: Float] = [:]
     var isWrong = false
     var level: Float = 0
     /// Pitch classes (0 = C) that are allowed.
@@ -62,6 +65,8 @@ final class Listener {
     private var streaks: [Int: Int] = [:]
     /// Confirmed notes, with how many windows in a row each has been missing.
     private var confirmed: [Int: Int] = [:]
+    /// Smoothed cents off for each confirmed note.
+    private var cents: [Int: Float] = [:]
     private var silentCount = 0
     private var clearTask: Task<Void, Never>?
 
@@ -74,6 +79,9 @@ final class Listener {
     /// A wrong note must be found this many windows in a row to flash, so a
     /// brief artifact (pick attack, distortion) doesn't.
     private let framesToFlash = 5
+    /// How much of each new tuning reading goes into the shown one: enough to
+    /// follow a sung slide or vibrato, while evening out window-to-window noise.
+    private let tuningSmoothing: Float = 0.25
     /// Time between windows: the detector's 1024-sample hop at 48 kHz.
     private let windowSeconds = 1024.0 / 48_000
 
@@ -109,16 +117,19 @@ final class Listener {
         isListening = false
         currentNotes = []
         loudestNote = nil
+        tuning = [:]
         isWrong = false
         level = 0
         streaks = [:]
         confirmed = [:]
+        cents = [:]
         UIApplication.shared.isIdleTimerDisabled = false
     }
 
-    func handle(notes: [Int], rms: Float) {
+    func handle(notes detected: [DetectedNote], rms: Float) {
         guard isListening else { return }
         level = rms
+        let notes = detected.map(\.note)
         let found = Set(notes)
         streaks = Dictionary(uniqueKeysWithValues: found.map { ($0, (streaks[$0] ?? 0) + 1) })
         for note in confirmed.keys where !found.contains(note) {
@@ -128,16 +139,27 @@ final class Listener {
         for note in found where streaks[note]! >= framesToConfirm {
             confirmed[note] = 0
         }
+        cents = cents.filter { confirmed[$0.key] != nil }
+        for note in detected where confirmed[note.note] != nil {
+            guard let reading = note.cents else { continue }
+            cents[note.note] = cents[note.note].map { $0 + tuningSmoothing * (reading - $0) } ?? reading
+        }
         guard !confirmed.isEmpty else {
             silentCount += 1
             if silentCount > 10 {
                 currentNotes = []
                 loudestNote = nil
+                tuning = [:]
             }
             return
         }
         silentCount = 0
         currentNotes = Set(confirmed.keys)
+        var tuning: [Int: Float] = [:]
+        for note in notes + confirmed.keys.sorted() where tuning[note % 12] == nil {
+            tuning[note % 12] = cents[note]
+        }
+        self.tuning = tuning
         // Notes come strongest first; while a confirmed one is missing for a
         // window the loudest stays as it was.
         if let loudest = notes.first(where: { confirmed[$0] != nil }) { loudestNote = loudest }

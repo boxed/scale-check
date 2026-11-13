@@ -15,6 +15,13 @@ and the screen flashes red the moment you hit a note outside it.
 - **Chords.** Several notes can ring at once; the screen flashes if any of
   them is out of the scale. The middle of the screen shows the loudest note
   and its octave.
+- **Tuning.** A track beside the notes has a tick level with each one and a
+  ball at the loudest note's exact pitch (A = 440 Hz): a sharp note sits a
+  little below its tick, toward the next note up, a flat one a little above.
+  The track wraps around the octave, so a slide past the last note comes back
+  in at the top. The ball is green within 5 cents, orange within 15, red
+  beyond, and the cents show in the middle too. Handy for checking a guitar's
+  intonation up the neck, or for singing.
 - **Detect.** Don't know what key a song is in? Tap Detect and play along.
   A bar beside each note shows how long it has sounded; once a note has
   enough of the time (5%, at least 0.15 s) it fills in, so a stray
@@ -38,6 +45,14 @@ one loud high peak. Every candidate note from a 7-string's low B up to the
 taken, its harmonics are removed from the spectrum, and the search repeats
 until what's left is under 65% of the loudest note. That threshold is high on
 purpose: distortion adds intermodulation tones that look like quieter notes.
+
+To tell how in tune a note is, the peaks of its first five harmonics are
+located between FFT bins (a parabola through the log magnitudes around each)
+and averaged, weighted toward the stronger and higher ones. Higher harmonics
+are left out because on a stiff string they run sharp, and in a chord so is any
+harmonic that collides with another note's. On synthetic notes it's within a
+cent or so for a single note and a few cents in a chord. The reading is
+smoothed over a few windows.
 
 A note must be found in 3 windows in a row to count, and a wrong note in 5
 before it flashes, which filters out the pick attack and brief artifacts.

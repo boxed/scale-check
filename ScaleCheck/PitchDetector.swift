@@ -4,9 +4,9 @@ import Accelerate
 /// Listens to the microphone and reports the notes being played, chords
 /// included, on overlapping windows.
 final class PitchDetector {
-    /// Called on the audio thread with the MIDI notes found, strongest first
+    /// Called on the audio thread with the notes found, strongest first
     /// (empty below the gate), and the window's RMS level.
-    var onNotes: (([Int], Float) -> Void)?
+    var onNotes: (([DetectedNote], Float) -> Void)?
 
     private let engine = AVAudioEngine()
     /// ~85 ms at 48 kHz: long enough to tell apart the low notes' partials.

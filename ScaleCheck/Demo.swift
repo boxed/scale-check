@@ -39,6 +39,14 @@ let demoScript: [DemoStep] = {
     return steps
 }()
 
+/// Cents off each demo note, so the tuning meters have something to show: a
+/// flat C and a sharp G among notes close to true. A slight wobble is added
+/// as the note rings.
+private func demoCents(_ note: Int, frame: Int) -> Float {
+    let off: [Int: Float] = [60: -18, 67: 11, 52: 7, 64: -3, 62: 2]
+    return off[note, default: 1] + 2 * Float(sin(Double(frame + note) * 0.4))
+}
+
 extension Listener {
     /// Plays `demoScript` through the same per-window handling the mic gets,
     /// then quits so the recording script knows it's done.
@@ -54,7 +62,7 @@ extension Listener {
                 let frames = Int(seconds / 0.021)
                 for frame in 0..<frames {
                     let rms = 0.08 * Float(exp(-2.0 * Double(frame) * 0.021))
-                    handle(notes: notes, rms: rms)
+                    handle(notes: notes.map { DetectedNote(note: $0, cents: demoCents($0, frame: frame)) }, rms: rms)
                     try? await Task.sleep(for: window)
                 }
             case let .rest(seconds):

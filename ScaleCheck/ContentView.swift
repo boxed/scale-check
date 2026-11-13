@@ -22,7 +22,7 @@ struct ContentView: View {
                 .animation(.easeOut(duration: listener.isWrong ? 0.05 : 0.3), value: listener.isWrong)
 
             VStack(spacing: 16) {
-                HStack(spacing: 16) {
+                HStack(spacing: 8) {
                     noteColumn
                     VStack(spacing: 24) {
                         if listener.isDetecting {
@@ -42,7 +42,8 @@ struct ContentView: View {
                     pickers
                 }
             }
-            .padding()
+            .padding(.vertical)
+            .padding(.horizontal, 4)
         }
         .onAppear { applySettings() }
         .onChange(of: allowed) { applySettings() }
@@ -123,7 +124,8 @@ struct ContentView: View {
         }
     }
 
-    /// All twelve notes ringing the one being heard, each with its scale degree.
+    /// All twelve notes ringing the one being heard, each with its scale
+    /// degree, beside a track showing how in tune the loudest one is.
     /// Normally they run from the root down with the scale notes outlined in
     /// blue; while detecting they run from C, filled once played enough to
     /// count (the degrees count from the first one, the likely root), with a
@@ -135,41 +137,44 @@ struct ContentView: View {
         let heard = listener.heard
         let degreeRoot = detecting ? heard.first : root
         let mostHeard = listener.evidence.values.max() ?? 0
-        return VStack(spacing: 6) {
-            ForEach(0..<12, id: \.self) { offset in
-                let pc = (start + offset) % 12
-                let filled = detecting && heard.contains(pc)
-                let inScale = !detecting && allowed.contains(pc)
-                let sounding = listener.currentNotes.contains { $0 % 12 == pc }
-                HStack(spacing: 6) {
-                    Text(noteName(pc, root: start))
-                        .font(.headline)
-                        .frame(width: 52)
-                        .frame(maxHeight: .infinity)
-                        .foregroundStyle(filled ? Color.white : inScale ? Color.accentColor : Color.secondary)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(filled ? Color.accentColor : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .strokeBorder(sounding ? Color.primary : inScale ? Color.accentColor : Color.secondary.opacity(0.4),
-                                              lineWidth: sounding ? 3 : (filled ? 0 : 1.5))
-                        )
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if detecting { listener.toggleHeard(pc) }
+        return HStack(spacing: 4) {
+            TuningTrack(listener: listener, start: start, rowSpacing: noteRowSpacing)
+            VStack(spacing: noteRowSpacing) {
+                ForEach(0..<12, id: \.self) { offset in
+                    let pc = (start + offset) % 12
+                    let filled = detecting && heard.contains(pc)
+                    let inScale = !detecting && allowed.contains(pc)
+                    let sounding = listener.currentNotes.contains { $0 % 12 == pc }
+                    HStack(spacing: 6) {
+                        Text(noteName(pc, root: start))
+                            .font(.headline)
+                            .frame(width: 52)
+                            .frame(maxHeight: .infinity)
+                            .foregroundStyle(filled ? Color.white : inScale ? Color.accentColor : Color.secondary)
+                            .background(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(filled ? Color.accentColor : Color.clear)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .strokeBorder(sounding ? Color.primary : inScale ? Color.accentColor : Color.secondary.opacity(0.4),
+                                                  lineWidth: sounding ? 3 : (filled ? 0 : 1.5))
+                            )
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                if detecting { listener.toggleHeard(pc) }
+                            }
+                        Text(degreeRoot.map { degreeName(pc - $0, in: detecting ? nil : scale) } ?? "")
+                            .font(.subheadline)
+                            .foregroundStyle(filled || inScale ? Color.primary : Color.secondary)
+                            .frame(width: 24, alignment: .leading)
+                        if detecting {
+                            let share = mostHeard > 0 ? listener.evidence[pc, default: 0] / mostHeard : 0
+                            Capsule()
+                                .fill(filled ? Color.accentColor : Color.secondary.opacity(0.5))
+                                .frame(width: 28 * share, height: 8)
+                                .frame(width: 28, alignment: .leading)
                         }
-                    Text(degreeRoot.map { degreeName(pc - $0, in: detecting ? nil : scale) } ?? "")
-                        .font(.subheadline)
-                        .foregroundStyle(filled || inScale ? Color.primary : Color.secondary)
-                        .frame(width: 24, alignment: .leading)
-                    if detecting {
-                        let share = mostHeard > 0 ? listener.evidence[pc, default: 0] / mostHeard : 0
-                        Capsule()
-                            .fill(filled ? Color.accentColor : Color.secondary.opacity(0.5))
-                            .frame(width: 28 * share, height: 8)
-                            .frame(width: 28, alignment: .leading)
                     }
                 }
             }
@@ -227,8 +232,13 @@ struct ContentView: View {
             if let note = listener.loudestNote {
                 Text(noteName(note % 12, root: root))
                     .font(.system(size: 120, weight: .bold, design: .rounded))
-                Text("octave \(note / 12 - 1)")
-                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                HStack(spacing: 12) {
+                    Text("octave \(note / 12 - 1)")
+                        .foregroundStyle(.secondary)
+                    CentsReadout(listener: listener, pc: note % 12)
+                }
             } else {
                 Text("–")
                     .font(.system(size: 120, weight: .bold, design: .rounded))
@@ -238,6 +248,83 @@ struct ContentView: View {
             }
         }
     }
+}
+
+private let noteRowSpacing: CGFloat = 6
+
+/// A pitch track beside the note column: a tick level with each note, and a
+/// ball at the loudest note's exact pitch, so a note a little sharp sits a
+/// little below its tick, toward the next note up, and a flat one above. The
+/// column is one octave, so the track wraps: sliding up past the bottom note
+/// comes back in at the top. Its own view, like `LevelMeter`, so the readings
+/// coming in ~50 times a second only redraw this.
+private struct TuningTrack: View {
+    let listener: Listener
+    /// The pitch class of the top row.
+    let start: Int
+    let rowSpacing: CGFloat
+
+    var body: some View {
+        GeometryReader { geo in
+            let rowHeight = (geo.size.height - 11 * rowSpacing) / 12
+            let pitch = rowHeight + rowSpacing
+            let mid = geo.size.width / 2
+            ZStack(alignment: .topLeading) {
+                ForEach(0..<12, id: \.self) { row in
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.5))
+                        .frame(width: 10, height: 2)
+                        .position(x: mid, y: CGFloat(row) * pitch + rowHeight / 2)
+                }
+                if let note = listener.loudestNote, let cents = listener.tuning[note % 12] {
+                    let semitones = CGFloat((note % 12 - start + 12) % 12) + CGFloat(min(max(cents, -50), 50)) / 100
+                    // Wrapped into the octave, with the seam half a row above the top tick.
+                    let wrapped = (semitones + 0.5).truncatingRemainder(dividingBy: 12)
+                    let row = (wrapped < 0 ? wrapped + 12 : wrapped) - 0.5
+                    Circle()
+                        .fill(tuningColor(cents))
+                        .frame(width: 10, height: 10)
+                        .position(x: mid, y: row * pitch + rowHeight / 2)
+                }
+            }
+        }
+        .frame(width: 12)
+        .accessibilityHidden(true)
+    }
+}
+
+/// The loudest note's cents off, as a number.
+private struct CentsReadout: View {
+    let listener: Listener
+    let pc: Int
+
+    var body: some View {
+        if let cents = listener.tuning[pc] {
+            Text(centsText(cents))
+                .monospacedDigit()
+                .foregroundStyle(tuningColor(cents))
+                .accessibilityLabel(centsDescription(cents))
+        }
+    }
+}
+
+/// Green within 5 cents, which few ears can hear; orange within 15; red beyond.
+private func tuningColor(_ cents: Float) -> Color {
+    switch abs(cents) {
+    case ..<5: .green
+    case ..<15: .orange
+    default: .red
+    }
+}
+
+private func centsText(_ cents: Float) -> String {
+    let rounded = Int(cents.rounded())
+    return rounded == 0 ? "±0¢" : rounded > 0 ? "+\(rounded)¢" : "−\(-rounded)¢"
+}
+
+private func centsDescription(_ cents: Float) -> String {
+    let rounded = Int(cents.rounded())
+    return rounded == 0 ? "in tune" : "\(abs(rounded)) cents \(rounded > 0 ? "sharp" : "flat")"
 }
 
 /// The mic level, rising from the bottom, with the threshold as a handle that
@@ -276,7 +363,7 @@ private struct LevelMeter: View {
                 }
             )
         }
-        .frame(width: 36)
+        .frame(width: 30)
         .accessibilityElement()
         .accessibilityLabel("Mic threshold")
         .accessibilityValue("\(Int(gateDB)) dB")

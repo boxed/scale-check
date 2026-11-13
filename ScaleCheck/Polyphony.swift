@@ -1,5 +1,14 @@
 import Accelerate
 
+/// A note found in a window, and how far off its exact pitch it is.
+struct DetectedNote: Equatable {
+    /// MIDI note number.
+    let note: Int
+    /// Cents above (or, negative, below) the note's equal-tempered pitch at
+    /// A = 440 Hz; nil when no harmonic was clear enough to measure.
+    let cents: Float?
+}
+
 /// Finds the notes sounding together in a window of samples, by iterative
 /// harmonic summation (after Klapuri 2006): score every candidate note by the
 /// weighted spectrum peaks at its harmonics, take the best, take its harmonics
@@ -15,6 +24,8 @@ final class Polyphony {
     /// like quieter notes.
     var relativeThreshold: Float = 0.65
     var maxNotes = 6
+    /// Harmonics measured to tell how in tune a note is.
+    var maxTuningHarmonic = 5
 
     private let fftSize: Int
     private let setup: vDSP_DFT_Setup
@@ -33,9 +44,10 @@ final class Polyphony {
         vDSP_DFT_DestroySetup(setup)
     }
 
-    /// The MIDI notes found, strongest first.
-    func notes(_ x: [Float]) -> [Int] {
-        var spectrum = magnitudes(x)
+    /// The notes found, strongest first.
+    func notes(_ x: [Float]) -> [DetectedNote] {
+        let raw = magnitudes(x)
+        var spectrum = whitened(raw)
         var found: [Int] = []
         var strongest: Float = 0
         while found.count < maxNotes {
@@ -53,7 +65,9 @@ final class Polyphony {
             found.append(best.note)
             remove(best.note, from: &spectrum)
         }
-        return found
+        return found.map { note in
+            DetectedNote(note: note, cents: cents(note, raw, others: found.filter { $0 != note }))
+        }
     }
 
     private func magnitudes(_ x: [Float]) -> [Float] {
@@ -79,7 +93,7 @@ final class Polyphony {
                 vDSP_zvabs(&split, 1, &mags, 1, vDSP_Length(half))
             }
         }
-        return whitened(mags)
+        return mags
     }
 
     /// Flattens the spectral envelope (Klapuri's whitening, ν = 0.33), so a
@@ -112,6 +126,50 @@ final class Polyphony {
         let hi = Int((center * pow(2, (0.25 + 0.01 * Float(h)) / 12)).rounded(.up))
         guard lo >= 1, hi < count else { return nil }
         return lo...max(hi, lo + 1)
+    }
+
+    /// How far `note` is from its exact pitch, from where its lower harmonics'
+    /// peaks really are. Each peak is located between bins by fitting a
+    /// parabola to the log magnitudes around it (exact for a Gaussian, close
+    /// for a Hann window's main lobe). Higher harmonics pin the fundamental
+    /// down more finely but run sharp on a stiff string, so only the first
+    /// few are used, weighted by their size and number. In a chord, a
+    /// harmonic that overlaps one of the `others`' is skipped, since the
+    /// two peaks pull on each other, unless that would leave none.
+    private func cents(_ note: Int, _ mags: [Float], others: [Int]) -> Float? {
+        let f0 = frequency(note)
+        let binHz = sampleRate / Float(fftSize)
+        // Within this many bins two peaks' main lobes overlap.
+        let lobe: Float = 4
+        let clashes = (1...maxTuningHarmonic).filter { h in
+            others.contains { other in
+                let ratio = f0 * Float(h) / frequency(other)
+                let j = max(1, ratio.rounded())
+                return abs(f0 * Float(h) - j * frequency(other)) < lobe * binHz
+            }
+        }
+        let harmonics = (1...maxTuningHarmonic).filter { !clashes.contains($0) }
+        var sum: Float = 0
+        var weight: Float = 0
+        for h in harmonics.isEmpty ? Array(1...maxTuningHarmonic) : harmonics {
+            let center = f0 * Float(h) / binHz
+            // Half a semitone either side: the whole range the note covers.
+            let lo = Int((center * pow(2, -0.5 / 12)).rounded(.down))
+            let hi = Int((center * pow(2, 0.5 / 12)).rounded(.up))
+            guard lo >= 2, hi < mags.count - 1 else { break }
+            let k = (lo...hi).max { mags[$0] < mags[$1] }!
+            guard mags[k] > 0, mags[k] >= mags[k - 1], mags[k] >= mags[k + 1] else { continue }
+            let a = log(max(mags[k - 1], 1e-12))
+            let b = log(mags[k])
+            let c = log(max(mags[k + 1], 1e-12))
+            let curve = a - 2 * b + c
+            let offset = curve < 0 ? 0.5 * (a - c) / curve : 0
+            let f = (Float(k) + offset) * binHz / Float(h)
+            let w = mags[k] * Float(h)
+            sum += w * log2(f / f0)
+            weight += w
+        }
+        return weight > 0 ? 1200 * sum / weight : nil
     }
 
     private func harmonicCount(_ f0: Float) -> Int {

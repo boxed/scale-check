@@ -14,8 +14,7 @@ xcodebuild -project ScaleCheck.xcodeproj -scheme ScaleCheck -configuration Debug
 xcrun simctl install booted "$WORK/dd/Build/Products/Debug-iphonesimulator/ScaleCheck.app"
 xcrun simctl terminate booted "$ID" 2>/dev/null || true
 
-# Light mode and a tidy status bar. The demo picks its own starting scale.
-xcrun simctl ui booted appearance light
+# A tidy status bar (the app is always dark). The demo picks its own starting scale.
 xcrun simctl status_bar booted override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularBars 4
 
 xcrun simctl io booted recordVideo --codec h264 --force "$WORK/demo.mov" &
